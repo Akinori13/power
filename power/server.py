@@ -1,9 +1,10 @@
 import socket
 import traceback
+import settings
 
 class Server:
-    host = 'localhost'
-    port = 8080
+    host = settings.SERVER['host']
+    port = settings.SERVER['port']
 
     def run(self):
         print('Running server...')
