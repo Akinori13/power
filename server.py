@@ -2,6 +2,7 @@ import socket
 import traceback
 import settings
 import os
+import importlib
 
 class Server:
     host = settings.SERVER['host']
@@ -30,7 +31,7 @@ class Server:
 
                     # Create response
                     response = Response(request.method, request.target)
-
+                    
                     connection.send(response.get_context())
                 except Exception:
                     traceback.print_exc()
@@ -57,33 +58,46 @@ class Response():
     def __init__(self, method: str, target: str) -> None:
         self.http_version = 'HTTP/1.1'
         self.method = method
-        if self.method == 'GET':
-            file_path = settings.SERVER['document_root'] + '/' + target
-            with open(file_path, 'rb') as f:
-                self.body = f.read()
+        file_path = settings.SERVER['document_root'] + target
+        # 動的サーバの場合
+        if settings.SERVER['is_dynamic']:
+            pass
+        # 静的サーバの場合
+        else:
+            # 拡張子なし
+            if not '.' in file_path:
+                file_path += '.html'
+            # ファイルを読み込む
+            if os.path.exists(file_path):
                 self.status_code = 200
-            if '.' in file_path:
                 extension = file_path.rsplit(".", maxsplit=1)[-1]
                 self.content_type = self.MEDIA_TYPES.get(extension, 'application/octet-stream')
-        else:
-            self.body = b''
-            self.status_code = 404
-        self.reason_phrase = self.REASON_PHRASES[self.status_code]
-        self.headers = {
-            'Connection': 'close',
-            'Content-Language': 'ja',
-            'Content-Length': f'{len(self.body)}',
-            'Host': 'Power',
-            'Content-Type': self.content_type
-        }
+                with open(file_path, 'rb') as f:
+                    self.body = f.read()
+            else:
+                self.status_code = 404
+                self.content_type = 'text/html; charset=utf-8'
+                self.body = b'<h1>Not Found</h1>'
+            self.reason_phrase = self.REASON_PHRASES[self.status_code]
+            self.headers = {
+                'Connection': 'close',
+                'Content-Language': 'ja',
+                'Content-Length': f'{len(self.body)}',
+                'Host': 'Power',
+                'Content-Type': self.content_type
+            }
 
     def get_context(self) -> bytes:
-        start_line = f'{self.http_version} {self.status_code} {self.reason_phrase}'
-        response_header = ''
-        for field_name, field_value in self.headers.items():
-            response_header += f'{field_name}: {field_value}\r\n'
-        response_body = self.body
-        context = (start_line + response_header + '\r\n').encode('UTF-8') + response_body
+        if settings.SERVER['is_dynamic']:
+            ap_server = importlib.import_module(settings.SERVER['document_root'] + '.' + settings.SERVER['entry_point'])
+            context = ap_server.send()
+        else:
+            start_line = f'{self.http_version} {self.status_code} {self.reason_phrase}'
+            response_header = ''
+            for field_name, field_value in self.headers.items():
+                response_header += f'{field_name}: {field_value}\r\n'
+            response_body = self.body
+            context = (start_line + response_header + '\r\n').encode('UTF-8') + response_body
         return context
 
 class Request():
